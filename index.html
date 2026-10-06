@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>书角 · 书名扫描记录</title>
+<meta name="description" content="用摄像头扫描书籍封面，自动识别并记录书名，整理个人书单的免费在线小工具。支持中文与英文书名识别、想读/在读/已读状态管理、搜索筛选与 CSV/JSON 导出。">
+<meta property="og:title" content="书角 · 书名扫描记录">
+<meta property="og:description" content="摄像头扫一下，书名自动记下来。免费在线书单管理工具，所有数据仅保存在访问者自己的浏览器中。">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://suncancan66-hub.github.io/book-title-scanner/">
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='6' width='24' height='20' rx='3' fill='%232F4A3E'/%3E%3Cpath d='M9 9h14M9 13h14M9 17h8' stroke='%23F5F1E8' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://miaoda.feishu.cn">
+<link href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Serif+SC:wght@600;700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ===== 基础 token ===== */
+:root{
+  --paper:#F5F1E8; --paper2:#EDE7D8; --card:#FBF8F1;
+  --ink:#2E2A23; --muted:#7C7362; --line:#D9D0BE;
+  --pine:#2F4A3E; --pine-deep:#24392F; --pine-tint:#E4EBE4;
+  --amber:#C98A2D; --amber-tint:#F3E5CD;
+  --read:#3E5C4E; --reading:#5A7D6A;
+  --red:#B4553F; --red-tint:#F6E4DE;
+  --radius:16px; --shadow:0 1px 2px rgba(46,42,35,.06), 0 6px 18px rgba(46,42,35,.05);
+  --serif:"Noto Serif SC","Songti SC","SimSun",serif;
+  --sans:"Noto Sans SC","Microsoft YaHei","PingFang SC",sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:var(--sans); color:var(--ink); background:
+    radial-gradient(1200px 500px at 85% -100px, #EFE7D4 0%, transparent 60%),
+    var(--paper);
+  min-height:100vh; font-size:14px; line-height:1.6;
+}
+::selection{background:var(--amber-tint)}
+button{font-family:inherit}
+input,select,textarea{font-family:inherit; color:inherit}
+:focus-visible{outline:2px solid var(--pine); outline-offset:2px; border-radius:6px}
+.shell{max-width:1180px; margin:0 auto; padding:26px 28px 48px}
+
+/* ===== 顶栏 ===== */
+.app-header{display:flex; align-items:flex-end; justify-content:space-between; gap:20px; flex-wrap:wrap; margin-bottom:22px}
+.brand{display:flex; align-items:center; gap:13px}
+.brand-mark{width:46px; height:46px; border-radius:12px; background:var(--pine); display:grid; place-items:center; box-shadow:var(--shadow)}
+.brand h1{font-family:var(--serif); font-size:26px; margin:0; letter-spacing:.5px}
+.brand .sub{color:var(--muted); font-size:12.5px; margin-top:1px}
+.stats{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+.stat-chip{background:var(--card); border:1px solid var(--line); border-radius:999px; padding:6px 14px 6px 9px; display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted); box-shadow:var(--shadow)}
+.stat-chip b{font-size:16px; color:var(--ink); font-weight:600; min-width:20px; text-align:center}
+.dot{width:8px; height:8px; border-radius:50%}
+.dot.amber{background:var(--amber)} .dot.green{background:var(--read)} .dot.light{background:var(--reading)} .dot.ink{background:var(--ink)}
+
+/* ===== 主布局 ===== */
+.app-main{display:grid; grid-template-columns:1.04fr 1fr; gap:20px; align-items:start}
+.panel{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:20px; overflow:hidden}
+.panel-title{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px}
+.panel-title h2{font-family:var(--serif); font-size:17px; margin:0; font-weight:600}
+.panel-title .hint{font-size:12px; color:var(--muted)}
+.hr{height:1px; background:var(--line); margin:14px 0; border:0}
+
+/* ===== 摄像头区 ===== */
+.viewport{position:relative; border-radius:12px; background:var(--paper2); border:1px solid var(--line); overflow:hidden; aspect-ratio:4/3}
+.viewport video{width:100%; height:100%; object-fit:cover; transform:scaleX(-1); display:block}
+.cam-off{position:absolute; inset:0; display:grid; place-items:center; text-align:center; padding:20px; color:var(--muted)}
+.cam-off svg{width:56px; height:56px; opacity:.75; margin-bottom:8px}
+.cam-off .t1{font-size:14px; color:var(--ink); font-weight:500; margin-bottom:2px}
+.cam-off .t2{font-size:12px; max-width:280px}
+.frame-guides{position:absolute; inset:12%; pointer-events:none; opacity:0; transition:opacity .25s}
+.frame-guides.on{opacity:1}
+.frame-guides::before,.frame-guides::after{content:""; position:absolute; width:26px; height:26px; border:2.5px solid rgba(245,241,232,.92)}
+.frame-guides::before{top:0; left:0; border-right:0; border-bottom:0; border-top-left-radius:8px}
+.frame-guides::after{bottom:0; right:0; border-left:0; border-top:0; border-bottom-right-radius:8px}
+.corner2{position:absolute; top:0; right:0; width:26px; height:26px; border:2.5px solid rgba(245,241,232,.92); border-left:0; border-bottom:0; border-top-right-radius:8px}
+.corner3{position:absolute; bottom:0; left:0; width:26px; height:26px; border:2.5px solid rgba(245,241,232,.92); border-right:0; border-top:0; border-bottom-left-radius:8px}
+.cam-banner{position:absolute; top:10px; left:50%; transform:translateX(-50%); background:rgba(36,57,47,.85); color:#F5F1E8; font-size:11.5px; padding:4px 12px; border-radius:999px; white-space:nowrap; opacity:0; transition:opacity .25s; pointer-events:none}
+.cam-banner.on{opacity:1}
+
+.toolbar{display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; align-items:center}
+.btn{display:inline-flex; align-items:center; gap:6px; border:1px solid transparent; border-radius:10px; padding:8px 14px; font-size:13px; font-weight:500; cursor:pointer; transition:background .15s, box-shadow .15s, opacity .15s; background:transparent; color:var(--ink)}
+.btn svg{width:15px; height:15px; flex:none}
+.btn:disabled{opacity:.45; cursor:not-allowed}
+.btn-primary{background:var(--pine); color:#F5F1E8; box-shadow:0 1px 2px rgba(36,57,47,.3)}
+.btn-primary:hover:not(:disabled){background:var(--pine-deep)}
+.btn-primary.amber{background:var(--amber)}
+.btn-primary.amber:hover:not(:disabled){background:#B27B20}
+.btn-ghost{border-color:var(--line); background:var(--card)}
+.btn-ghost:hover:not(:disabled){border-color:var(--pine); color:var(--pine)}
+.btn-danger-ghost{border-color:var(--line); color:var(--red)}
+.btn-danger-ghost:hover:not(:disabled){border-color:var(--red); background:var(--red-tint)}
+.btn-sm{padding:5px 10px; font-size:12px; border-radius:8px}
+.spacer{flex:1}
+
+/* 识别进度 */
+.progress-wrap{margin-top:14px}
+.progress-bar{height:6px; border-radius:999px; background:var(--paper2); overflow:hidden}
+.progress-bar i{display:block; height:100%; width:0%; background:var(--pine); transition:width .2s; border-radius:999px}
+.progress-label{font-size:12px; color:var(--muted); margin-top:6px; display:flex; justify-content:space-between}
+
+/* 识别结果表单 */
+.result{margin-top:14px; border:1px dashed var(--line); border-radius:12px; padding:14px; background:#FFFDF7; display:none}
+.result.open{display:block; animation:rise .22s ease}
+@keyframes rise{from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none}}
+.result label{display:block; font-size:12px; color:var(--muted); margin:10px 0 4px}
+.result .row2{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+.field{width:100%; border:1px solid var(--line); border-radius:9px; padding:8px 11px; font-size:14px; background:#fff}
+.field:focus{border-color:var(--pine); outline:none}
+textarea.field{resize:vertical; min-height:52px}
+.result-actions{display:flex; gap:8px; margin-top:14px; flex-wrap:wrap}
+.thumb-strip{display:flex; gap:10px; align-items:flex-start}
+.thumb-strip img{width:84px; height:auto; border-radius:8px; border:1px solid var(--line); object-fit:cover}
+
+/* 提示 */
+.tips{margin-top:16px; background:var(--pine-tint); border-radius:10px; padding:12px 14px; font-size:12.5px; color:#3C5147; line-height:1.75}
+.tips b{color:var(--pine-deep)}
+.tips ul{margin:4px 0 0; padding-left:18px}
+
+/* ===== 书单区 ===== */
+.list-toolbar{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:12px}
+.search{position:relative; flex:1; min-width:150px}
+.search svg{position:absolute; left:10px; top:50%; transform:translateY(-50%); width:14px; height:14px; color:var(--muted)}
+.search input{width:100%; border:1px solid var(--line); border-radius:9px; padding:7px 10px 7px 30px; font-size:13px; background:#fff}
+.search input:focus{border-color:var(--pine); outline:none}
+.tabs{display:flex; gap:4px; background:var(--paper2); border-radius:10px; padding:3px}
+.tab{border:0; background:transparent; padding:5px 12px; border-radius:8px; font-size:12.5px; color:var(--muted); cursor:pointer; display:flex; align-items:center; gap:5px}
+.tab b{font-weight:600; font-size:11px; background:rgba(46,42,35,.08); padding:0 6px; border-radius:999px}
+.tab.on{background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(46,42,35,.12); font-weight:500}
+
+.book-list{display:flex; flex-direction:column; gap:8px; max-height:560px; overflow:auto; padding-right:4px; scrollbar-width:thin}
+.book-list::-webkit-scrollbar{width:6px}
+.book-list::-webkit-scrollbar-thumb{background:var(--line); border-radius:999px}
+.book-item{display:flex; gap:11px; align-items:center; border:1px solid var(--line); border-radius:12px; padding:10px 12px; background:#fff; transition:box-shadow .15s}
+.book-item:hover{box-shadow:var(--shadow)}
+.book-thumb{width:42px; height:56px; border-radius:6px; overflow:hidden; flex:none; background:var(--paper2); display:grid; place-items:center; border:1px solid var(--line)}
+.book-thumb img{width:100%; height:100%; object-fit:cover; display:block}
+.book-thumb svg{width:20px; height:20px; color:var(--muted); opacity:.7}
+.book-main{flex:1; min-width:0}
+.book-main .t{font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.book-main .a{font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.book-main .n{font-size:11.5px; color:#A69B85; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.book-main .meta{font-size:11.5px; color:#A69B85; margin-top:2px; display:flex; gap:8px; flex-wrap:wrap; align-items:center}
+.badge{font-size:11px; padding:1px 8px; border-radius:999px; font-weight:500; white-space:nowrap}
+.badge.wanted{background:var(--amber-tint); color:#8A6217}
+.badge.reading{background:#E2EDE4; color:#3C5A49}
+.badge.read{background:var(--pine-tint); color:var(--pine-deep)}
+.book-actions{display:flex; gap:2px; flex:none}
+.icon-btn{border:0; background:transparent; padding:6px; border-radius:8px; cursor:pointer; color:var(--muted); display:grid; place-items:center}
+.icon-btn svg{width:15px; height:15px}
+.icon-btn:hover{color:var(--red); background:var(--red-tint)}
+
+.list-actions{display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; border-top:1px solid var(--line); padding-top:14px}
+.empty-state{text-align:center; padding:40px 10px; color:var(--muted)}
+.empty-state svg{width:74px; height:74px; opacity:.6; margin-bottom:10px}
+.empty-state .t1{font-size:14px; color:var(--ink); font-weight:500}
+.empty-state .t2{font-size:12.5px; margin-top:2px}
+
+/* ===== 弹窗 & Toast ===== */
+.modal-mask{position:fixed; inset:0; background:rgba(46,42,35,.42); display:grid; place-items:center; z-index:50; padding:20px}
+.modal-mask[hidden]{display:none}
+.modal{background:var(--card); border-radius:16px; box-shadow:0 18px 50px rgba(46,42,35,.25); width:min(420px,100%); padding:22px; max-height:88vh; overflow:auto}
+.modal h3{font-family:var(--serif); margin:0 0 14px; font-size:17px}
+.modal label{display:block; font-size:12px; color:var(--muted); margin:10px 0 4px}
+.modal-actions{display:flex; gap:8px; margin-top:18px; justify-content:flex-end; flex-wrap:wrap}
+.modal .note{font-size:12px; color:var(--muted); margin-top:10px; line-height:1.7}
+.toasts{position:fixed; top:18px; right:18px; z-index:60; display:flex; flex-direction:column; gap:8px; max-width:340px}
+.toast{background:var(--ink); color:#F5F1E8; font-size:13px; padding:10px 14px; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.22); display:flex; gap:8px; align-items:center; animation:rise .2s ease}
+.toast.warn{background:var(--red)}
+.toast svg{width:15px; height:15px; flex:none}
+
+/* ===== 响应式 ===== */
+@media (max-width: 980px){
+  .app-main{grid-template-columns:1fr}
+  .book-list{max-height:none}
+}
+@media (max-width: 640px){
+  .btn{min-height:44px; padding:10px 14px; font-size:14px}
+  .tab{min-height:44px}
+  .field, .search input{font-size:16px}
+  body{font-size:15px}
+  .stat-chip, .hint, .tips, .brand .sub{font-size:13px}
+  .cam-off .t2{font-size:13px}
+}
+@media (max-width: 520px){
+  .shell{padding:18px 14px 40px}
+  .brand h1{font-size:22px}
+  .result .row2{grid-template-columns:1fr}
+  .viewport{aspect-ratio:4/5}
+}
+@media (prefers-reduced-motion: reduce){
+  *{animation:none !important; transition:none !important}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#F5F1E8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H12v15h5.5a2.5 2.5 0 0 1 2.5 2.5z"/></svg>
+      </div>
+      <div>
+        <h1>书角</h1>
+        <div class="sub">摄像头扫一下，书名自动记下来</div>
+      </div>
+    </div>
+    <div class="stats" id="statsBar">
+      <span class="stat-chip"><span class="dot ink"></span>共 <b id="statTotal">0</b> 本</span>
+      <span class="stat-chip"><span class="dot amber"></span>想读 <b id="statWanted">0</b></span>
+      <span class="stat-chip"><span class="dot light"></span>在读 <b id="statReading">0</b></span>
+      <span class="stat-chip"><span class="dot green"></span>已读 <b id="statRead">0</b></span>
+    </div>
+  </header>
+
+  <main class="app-main">
+
+    <!-- ===== 左：摄像头扫描 ===== -->
+    <section class="panel scan-panel">
+      <div class="panel-title">
+        <h2>摄像头扫描</h2>
+        <span class="hint" id="langHint">识别语言</span>
+        <select id="langSel" class="field" style="width:auto; margin-left:auto; padding:5px 10px; font-size:12.5px">
+          <option value="chi_sim" selected>简体中文</option>
+          <option value="chi_sim+eng">中文 + 英文</option>
+          <option value="eng">English</option>
+        </select>
+      </div>
+
+      <div class="viewport" id="viewport">
+        <video id="camVideo" autoplay playsinline muted></video>
+        <div class="cam-off" id="camOff">
+          <div>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            <div class="t1" id="camOffTitle">开启摄像头</div>
+            <div class="t2" id="camOffText">把书平放，让书名文字水平对准取景框，拍下后自动识别书名并保存。</div>
+          </div>
+        </div>
+        <div class="frame-guides" id="frameGuides">
+          <i class="corner2"></i><i class="corner3"></i>
+        </div>
+        <div class="cam-banner" id="camBanner">摄像头运行中</div>
+      </div>
+      <canvas id="snapCanvas" hidden></canvas>
+
+      <div class="toolbar">
+        <button class="btn btn-primary" id="btnCam">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          <span>开启摄像头</span>
+        </button>
+        <button class="btn btn-primary amber" id="btnSnap" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></svg>
+          <span>拍照识别</span>
+        </button>
+        <button class="btn btn-ghost" id="btnRetake" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+          <span>重新拍摄</span>
+        </button>
+      </div>
+
+      <div class="progress-wrap" id="progressWrap" hidden>
+        <div class="progress-bar"><i id="progressBar"></i></div>
+        <div class="progress-label"><span id="progressText">识别中…</span><span id="progressPct">0%</span></div>
+      </div>
+
+      <div class="result" id="resultBox">
+        <div class="thumb-strip">
+          <img id="thumbImg" alt="拍摄画面">
+          <div style="flex:1">
+            <label>书名 *</label>
+            <input class="field" id="fTitle" placeholder="识别出的书名，可手动修改" autocomplete="off">
+            <div class="row2">
+              <div><label>作者</label><input class="field" id="fAuthor" placeholder="选填" autocomplete="off"></div>
+              <div><label>状态</label>
+                <select class="field" id="fStatus">
+                  <option value="wanted">想读</option>
+                  <option value="reading" selected>在读</option>
+                  <option value="read">已读</option>
+                </select>
+              </div>
+            </div>
+            <label>备注</label>
+            <textarea class="field" id="fNote" placeholder="选填，如：图书馆借的、朋友推荐…"></textarea>
+          </div>
+        </div>
+        <div class="result-actions">
+          <button class="btn btn-primary" id="btnSave">保存这本书</button>
+          <button class="btn btn-ghost" id="btnCancelResult">放弃</button>
+        </div>
+      </div>
+
+      <div class="tips">
+        <b>使用提示</b>
+        <ul>
+          <li>第一次使用请在浏览器弹出的权限框里选择<b>允许</b>摄像头。</li>
+          <li>拍书脊或书名页都可以，<b>字越大越清晰，识别越准</b>；识别后先核对再保存。</li>
+          <li>识别结果若不准，可直接在输入框里手动改正，或点「重新拍摄」。</li>
+          <li>所有记录保存在本机浏览器中，可随时导出 CSV / JSON。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ===== 右：书单 ===== -->
+    <section class="panel list-panel">
+      <div class="panel-title">
+        <h2>我的书单</h2>
+        <span class="hint" id="listCount">0 条记录</span>
+      </div>
+
+      <div class="list-toolbar">
+        <div class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="searchInput" placeholder="搜索书名、作者、备注" autocomplete="off">
+        </div>
+        <div class="tabs" id="tabs">
+          <button class="tab on" data-f="all">全部 <b id="cAll">0</b></button>
+          <button class="tab" data-f="wanted">想读 <b id="cWanted">0</b></button>
+          <button class="tab" data-f="reading">在读 <b id="cReading">0</b></button>
+          <button class="tab" data-f="read">已读 <b id="cRead">0</b></button>
+        </div>
+      </div>
+
+      <div class="book-list" id="bookList">
+        <div class="empty-state">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 14h12v36H10zM18 20h-4M18 26h-4M18 32h-4"/><path d="M42 14h12v36H42zM50 20h-4M50 26h-4M50 32h-4"/>
+            <path d="M22 18h20v28H22zM28 24h8M28 30h8" stroke-width="1.6"/>
+          </svg>
+          <div class="t1">书单还是空的</div>
+          <div class="t2">用摄像头扫一本书，或点下方「手动添加」</div>
+        </div>
+      </div>
+
+      <div class="list-actions">
+        <button class="btn btn-primary" id="btnManualAdd">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          <span>手动添加</span>
+        </button>
+        <button class="btn btn-ghost" id="btnExportCsv">导出 CSV</button>
+        <button class="btn btn-ghost" id="btnExportJson">导出 JSON</button>
+        <button class="btn btn-ghost" id="btnImport">导入</button>
+        <span class="spacer"></span>
+        <button class="btn btn-danger-ghost" id="btnClear">清空记录</button>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ===== 弹窗 ===== -->
+<div class="modal-mask" id="modalMask" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <h3 id="modalTitle">手动添加</h3>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+/* ===== 工具 ===== */
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const STATUS = { wanted:'想读', reading:'在读', read:'已读' };
+function toast(msg, warn){
+  const t = document.createElement('div');
+  t.className = 'toast' + (warn ? ' warn' : '');
+  t.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg><span>' + esc(msg) + '</span>';
+  $('#toasts').appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .3s'; setTimeout(() => t.remove(), 320); }, 2600);
+}
+function fmtTime(iso){
+  const d = new Date(iso), p = n => String(n).padStart(2,'0');
+  return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+/* ===== 数据层 IndexedDB ===== */
+const DB_NAME = 'bookscanner', STORE = 'books';
+let db = null;
+function openDB(){
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(DB_NAME, 1);
+    r.onupgradeneeded = () => {
+      const s = r.result.createObjectStore(STORE, { keyPath:'id' });
+      s.createIndex('createdAt', 'createdAt');
+    };
+    r.onsuccess = () => { db = r.result; res(); };
+    r.onerror = () => rej(r.error);
+  });
+}
+function dbGetAll(){ return new Promise((res, rej) => { const q = db.transaction(STORE,'readonly').objectStore(STORE).getAll(); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+function dbPut(rec){ return new Promise((res, rej) => { const tx = db.transaction(STORE,'readwrite'); tx.objectStore(STORE).put(rec); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
+function dbDelete(id){ return new Promise((res, rej) => { const tx = db.transaction(STORE,'readwrite'); tx.objectStore(STORE).delete(id); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
+function dbClear(){ return new Promise((res, rej) => { const tx = db.transaction(STORE,'readwrite'); tx.objectStore(STORE).clear(); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
+
+/* ===== 状态 & 渲染 ===== */
+let allBooks = [];
+let curFilter = 'all';
+let curQuery = '';
+
+function refresh(){ dbGetAll().then(list => { allBooks = list.sort((a,b) => b.createdAt.localeCompare(a.createdAt)); renderAll(); }); }
+function visibleBooks(){
+  const q = curQuery.trim().toLowerCase();
+  return allBooks.filter(b => {
+    if (curFilter !== 'all' && b.status !== curFilter) return false;
+    if (!q) return true;
+    return (b.title + ' ' + (b.author||'') + ' ' + (b.note||'')).toLowerCase().includes(q);
+  });
+}
+function renderAll(){
+  const list = visibleBooks();
+  $('#statTotal').textContent = allBooks.length;
+  $('#statWanted').textContent = allBooks.filter(b => b.status==='wanted').length;
+  $('#statReading').textContent = allBooks.filter(b => b.status==='reading').length;
+  $('#statRead').textContent = allBooks.filter(b => b.status==='read').length;
+  $('#cAll').textContent = allBooks.length;
+  $('#cWanted').textContent = allBooks.filter(b => b.status==='wanted').length;
+  $('#cReading').textContent = allBooks.filter(b => b.status==='reading').length;
+  $('#cRead').textContent = allBooks.filter(b => b.status==='read').length;
+  $('#listCount').textContent = curFilter==='all' && !curQuery ? allBooks.length + ' 条记录' : '筛选出 ' + list.length + ' / ' + allBooks.length;
+  const wrap = $('#bookList');
+  if (!list.length){
+    wrap.innerHTML = '<div class="empty-state">' +
+      '<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M10 14h12v36H10zM18 20h-4M18 26h-4M18 32h-4"/><path d="M42 14h12v36H42zM50 20h-4M50 26h-4M50 32h-4"/>' +
+      '<path d="M22 18h20v28H22zM28 24h8M28 30h8" stroke-width="1.6"/></svg>' +
+      '<div class="t1">' + (curQuery ? '没有匹配的记录' : '书单还是空的') + '</div>' +
+      '<div class="t2">' + (curQuery ? '换个关键词试试' : '用摄像头扫一本书，或点下方「手动添加」') + '</div></div>';
+    return;
+  }
+  wrap.innerHTML = list.map(b => {
+    const thumb = b.thumb ? '<img src="' + b.thumb + '" alt="">' :
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H12v15h5.5a2.5 2.5 0 0 1 2.5 2.5z"/></svg>';
+    return '<div class="book-item" data-id="' + b.id + '">' +
+      '<div class="book-thumb">' + thumb + '</div>' +
+      '<div class="book-main">' +
+        '<div class="t" title="' + esc(b.title) + '">' + esc(b.title) + '</div>' +
+        (b.author ? '<div class="a">' + esc(b.author) + '</div>' : '') +
+        (b.note ? '<div class="n">' + esc(b.note) + '</div>' : '') +
+        '<div class="meta"><span class="badge ' + b.status + '">' + STATUS[b.status] + '</span><span>' + fmtTime(b.createdAt) + '</span>' + (b.source==='manual' ? '<span>手动</span>' : '') + '</div>' +
+      '</div>' +
+      '<div class="book-actions"><button class="icon-btn" data-act="del" title="删除这条记录">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></svg></button></div>' +
+    '</div>';
+  }).join('');
+}
+
+/* ===== 摄像头 ===== */
+let stream = null, camOn = false, currentThumb = null;
+const video = $('#camVideo'), canvas = $('#snapCanvas');
+function updateCamUI(){
+  $('#btnCam span').textContent = camOn ? '关闭摄像头' : '开启摄像头';
+  $('#btnSnap').disabled = !camOn;
+  $('#camOff').style.display = camOn ? 'none' : 'grid';
+  $('#frameGuides').classList.toggle('on', camOn);
+  $('#camBanner').classList.toggle('on', camOn);
+}
+function setCamMsg(t1, t2){
+  $('#camOffTitle').textContent = t1;
+  if (t2) $('#camOffText').textContent = t2;
+}
+async function toggleCam(){
+  if (camOn){ stopCam(); return; }
+  if (location.protocol === 'file:'){
+    toast('请用「启动工具.bat」运行，浏览器才能调用摄像头', true);
+    setCamMsg('请用启动工具运行', '双击「启动工具.bat」，程序会在浏览器中打开一个本地页面，那里才能使用摄像头。');
+    return;
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    toast('当前浏览器不支持摄像头', true);
+    setCamMsg('浏览器不支持摄像头', '请换用 Chrome / Edge 浏览器。');
+    return;
+  }
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment', width:{ ideal:1920 } }, audio:false });
+    video.srcObject = stream;
+    await video.play();
+    camOn = true;
+    setCamMsg('开启摄像头', '');
+    updateCamUI();
+  }catch(e){
+    console.warn(e);
+    toast('无法访问摄像头：请允许摄像头权限后重试', true);
+    setCamMsg('摄像头被拒绝', '请在浏览器地址栏左侧的权限图标中允许摄像头，然后重新点「开启摄像头」。');
+  }
+}
+function stopCam(){
+  if (stream){ stream.getTracks().forEach(t => t.stop()); }
+  stream = null; camOn = false; video.srcObject = null;
+  updateCamUI();
+}
+function snap(){
+  const w = video.videoWidth, h = video.videoHeight;
+  if (!w) return null;
+  const scale = Math.min(1, 1600 / w);
+  canvas.width = Math.round(w * scale); canvas.height = Math.round(h * scale);
+  const ctx = canvas.getContext('2d');
+  ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const tc = document.createElement('canvas');
+  const tw = 360, th = Math.round(360 * h / w);
+  tc.width = tw; tc.height = th;
+  const tctx = tc.getContext('2d');
+  tctx.translate(tw, 0); tctx.scale(-1, 1);
+  tctx.drawImage(video, 0, 0, tw, th);
+  return { full: canvas, thumb: tc.toDataURL('image/jpeg', .72) };
+}
+
+/* ===== OCR ===== */
+let worker = null, workerLang = '';
+async function getWorker(lang){
+  if (worker && workerLang === lang) return worker;
+  if (worker){ try{ await worker.terminate(); }catch(e){} worker = null; }
+  workerLang = lang;
+  const base = {
+    logger: m => {
+      if (m.status === 'recognizing text'){
+        $('#progressBar').style.width = Math.round(m.progress * 100) + '%';
+        $('#progressPct').textContent = Math.round(m.progress * 100) + '%';
+      }
+    }
+  };
+  try{
+    worker = await Tesseract.createWorker(lang, 1, Object.assign({}, base, { corePath:'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core-simd-lstm.wasm.js' }));
+  }catch(e){
+    console.warn('SIMD 核心加载失败，改用基础核心', e);
+    worker = await Tesseract.createWorker(lang, 1, Object.assign({}, base, { corePath:'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core-lstm.wasm.js' }));
+  }
+  await worker.setParameters({ tessedit_pageseg_mode: 6 });
+  return worker;
+}
+function cleanOcrText(text){
+  const lines = String(text||'').split(/\r?\n/)
+    .map(l => l.replace(/[\s\u3000]+/g, ' ').trim())
+    .map(l => l.replace(/([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])/g, '$1$2')) // 去掉中文之间的多余空格
+    .filter(l => /[A-Za-z0-9\u4e00-\u9fa5]/.test(l));
+  return lines.slice(0, 2).join(' ');
+}
+async function onSnap(){
+  if (!camOn) return;
+  const shot = snap();
+  if (!shot){ toast('请先开启摄像头', true); return; }
+  currentThumb = shot.thumb;
+  $('#thumbImg').src = shot.thumb;
+  $('#fTitle').value = ''; $('#fAuthor').value = ''; $('#fNote').value = '';
+  $('#fStatus').value = 'reading';
+  openResult();
+  const wrap = $('#progressWrap');
+  wrap.hidden = false;
+  $('#progressBar').style.width = '0%';
+  $('#progressPct').textContent = '0%';
+  $('#progressText').textContent = '正在加载识别引擎（首次较慢）…';
+  try{
+    const w = await getWorker($('#langSel').value);
+    $('#progressText').textContent = '识别中…';
+    const { data } = await w.recognize(canvas);
+    const cleaned = cleanOcrText(data.text);
+    $('#fTitle').value = cleaned;
+    $('#progressText').textContent = cleaned ? '识别完成，请核对后保存' : '未识别到文字，请手动输入书名';
+  }catch(e){
+    console.error(e);
+    toast('识别失败：' + (e && e.message ? e.message : '请用「启动工具.bat」运行后再试'), true);
+    $('#progressText').textContent = '识别失败，请手动输入书名';
+  }finally{
+    setTimeout(() => { wrap.hidden = true; }, 900);
+  }
+}
+
+/* ===== 结果表单 ===== */
+function openResult(){
+  $('#resultBox').classList.add('open');
+  $('#btnRetake').disabled = false;
+  $('#resultBox').scrollIntoView({ behavior:'smooth', block:'nearest' });
+}
+function closeResult(){
+  $('#resultBox').classList.remove('open');
+  $('#btnRetake').disabled = true;
+  $('#progressWrap').hidden = true;
+  currentThumb = null;
+}
+function onSave(){
+  const title = $('#fTitle').value.trim();
+  if (!title){ toast('书名不能为空', true); $('#fTitle').focus(); return; }
+  const rec = {
+    id: 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    title,
+    author: $('#fAuthor').value.trim(),
+    status: $('#fStatus').value,
+    note: $('#fNote').value.trim(),
+    source: 'camera',
+    createdAt: new Date().toISOString(),
+    thumb: currentThumb
+  };
+  dbPut(rec).then(() => { refresh(); closeResult(); toast('已保存《' + title + '》'); });
+}
+
+/* ===== 弹窗 ===== */
+function openModal(title, html){
+  $('#modalTitle').textContent = title;
+  $('#modalBody').innerHTML = html;
+  $('#modalMask').hidden = false;
+  const first = $('#modalBody input, #modalBody select, #modalBody textarea, #modalBody button:not(.btn-ghost)');
+  if (first) setTimeout(() => first.focus(), 50);
+}
+function closeModal(){ $('#modalMask').hidden = true; $('#modalBody').innerHTML = ''; }
+function openManual(){
+  openModal('手动添加',
+    '<label>书名 *</label><input class="field" id="mTitle" autocomplete="off">' +
+    '<label>作者</label><input class="field" id="mAuthor" autocomplete="off">' +
+    '<label>状态</label><select class="field" id="mStatus"><option value="wanted">想读</option><option value="reading" selected>在读</option><option value="read">已读</option></select>' +
+    '<label>备注</label><textarea class="field" id="mNote"></textarea>' +
+    '<div class="modal-actions"><button class="btn btn-ghost" data-close="1">取消</button><button class="btn btn-primary" id="mSave">保存</button></div>');
+  $('#mSave').onclick = () => {
+    const title = $('#mTitle').value.trim();
+    if (!title){ toast('书名不能为空', true); return; }
+    dbPut({ id:'b' + Date.now().toString(36) + Math.random().toString(36).slice(2,7),
+      title, author:$('#mAuthor').value.trim(), status:$('#mStatus').value, note:$('#mNote').value.trim(),
+      source:'manual', createdAt:new Date().toISOString(), thumb:null })
+      .then(() => { closeModal(); refresh(); toast('已保存《' + title + '》'); });
+  };
+}
+function openConfirm(title, msg, okText, danger, onOk){
+  openModal(title,
+    '<div class="note">' + msg + '</div>' +
+    '<div class="modal-actions"><button class="btn btn-ghost" data-close="1">取消</button><button class="btn ' + (danger ? 'btn-danger-ghost' : 'btn-primary') + '" id="cfOk">' + okText + '</button></div>');
+  $('#cfOk').onclick = () => { closeModal(); onOk(); };
+}
+
+/* ===== 导出 / 导入 / 清空 ===== */
+function download(text, name, type){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function exportCSV(){
+  if (!allBooks.length){ toast('书单为空，没有可导出的内容', true); return; }
+  const rows = [['书名','作者','状态','记录时间','来源','备注']];
+  allBooks.forEach(b => rows.push([b.title, b.author||'', STATUS[b.status], fmtTime(b.createdAt), b.source==='manual'?'手动':'扫描', b.note||'']));
+  const csv = rows.map(r => r.map(c => '"' + String(c).replace(/"/g,'""') + '"').join(',')).join('\r\n');
+  download('\ufeff' + csv, '书单_' + new Date().toISOString().slice(0,10) + '.csv', 'text/csv;charset=utf-8');
+  toast('已导出 CSV，可用 Excel 打开');
+}
+function exportJSON(){
+  if (!allBooks.length){ toast('书单为空，没有可导出的内容', true); return; }
+  download(JSON.stringify({ exportedAt:new Date().toISOString(), books: allBooks }, null, 2), '书单_' + new Date().toISOString().slice(0,10) + '.json', 'application/json');
+  toast('已导出 JSON 备份');
+}
+function importJSON(file){
+  const rd = new FileReader();
+  rd.onload = () => {
+    try{
+      const data = JSON.parse(rd.result);
+      const list = Array.isArray(data) ? data : (data.books || []);
+      if (!list.length){ toast('文件里没有书单记录', true); return; }
+      const exist = new Set(allBooks.map(b => (b.title + '|' + (b.author||'')).toLowerCase()));
+      let added = 0, skipped = 0;
+      const put = list.map(item => {
+        const title = String(item.title || item.name || '').trim();
+        if (!title) return Promise.resolve();
+        const key = (title + '|' + String(item.author||'')).toLowerCase();
+        if (exist.has(key)){ skipped++; return Promise.resolve(); }
+        exist.add(key);
+        added++;
+        return dbPut({ id: item.id || ('b' + Date.now().toString(36) + Math.random().toString(36).slice(2,7)),
+          title, author: String(item.author||'').trim(), status: STATUS[item.status] ? item.status : 'wanted',
+          note: String(item.note||'').trim(), source: item.source === 'manual' ? 'manual' : 'camera',
+          createdAt: item.createdAt || new Date().toISOString(), thumb: item.thumb || null });
+      });
+      Promise.all(put).then(() => { refresh(); toast('导入完成：新增 ' + added + ' 条' + (skipped ? '，跳过重复 ' + skipped + ' 条' : '')); });
+    }catch(e){
+      console.error(e);
+      toast('导入失败：文件不是有效的 JSON', true);
+    }
+  };
+  rd.onerror = () => toast('读取文件失败', true);
+  rd.readAsText(file);
+}
+
+/* ===== 事件绑定 ===== */
+function bindEvents(){
+  $('#btnCam').onclick = toggleCam;
+  $('#btnSnap').onclick = onSnap;
+  $('#btnRetake').onclick = closeResult;
+  $('#btnSave').onclick = onSave;
+  $('#btnCancelResult').onclick = closeResult;
+  $('#langSel').value = localStorage.getItem('bookscanner.lang') || 'chi_sim';
+  $('#langSel').addEventListener('change', e => localStorage.setItem('bookscanner.lang', e.target.value));
+  $('#tabs').addEventListener('click', e => {
+    const t = e.target.closest('.tab');
+    if (!t) return;
+    curFilter = t.dataset.f;
+    $$('.tab').forEach(x => x.classList.toggle('on', x === t));
+    renderAll();
+  });
+  $('#searchInput').addEventListener('input', e => { curQuery = e.target.value; renderAll(); });
+  $('#bookList').addEventListener('click', e => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const item = btn.closest('.book-item');
+    const rec = allBooks.find(b => b.id === item.dataset.id);
+    if (!rec) return;
+    if (btn.dataset.act === 'del'){
+      openConfirm('删除记录', '确定删除《' + esc(rec.title) + '》吗？删除后不可恢复。', '删除', true, () => dbDelete(rec.id).then(() => { refresh(); toast('已删除《' + rec.title + '》'); }));
+    }
+  });
+  $('#btnManualAdd').onclick = openManual;
+  $('#btnExportCsv').onclick = exportCSV;
+  $('#btnExportJson').onclick = exportJSON;
+  $('#btnImport').onclick = () => {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = '.json,application/json';
+    inp.onchange = () => { if (inp.files[0]) importJSON(inp.files[0]); };
+    inp.click();
+  };
+  $('#btnClear').onclick = () => {
+    if (!allBooks.length){ toast('书单本来就是空的'); return; }
+    openConfirm('清空记录', '将删除全部 ' + allBooks.length + ' 条记录，且不可恢复。建议先导出 JSON 备份。', '全部清空', true, () => dbClear().then(() => { refresh(); toast('书单已清空'); }));
+  };
+  $('#modalMask').addEventListener('click', e => {
+    if (e.target === $('#modalMask') || e.target.closest('[data-close]')) closeModal();
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#modalMask').hidden) closeModal(); });
+  window.addEventListener('beforeunload', () => { if (camOn) stopCam(); });
+}
+
+/* ===== 启动 ===== */
+(async function init(){
+  try{ await openDB(); }
+  catch(e){ toast('本地存储不可用：' + (e.message || e), true); }
+  bindEvents();
+  refresh();
+})();
+</script>
+</body>
+</html>
